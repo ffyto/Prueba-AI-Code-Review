@@ -1,0 +1,102 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  ai_review:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Extract PR metadata
+        id: metadata
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+
+            const issueMatch = pr.data.body.match(/#(\d+)/);
+            let issueBody = "No issue referenced.";
+            if (issueMatch) {
+              const issueNumber = issueMatch[1];
+              const issue = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+              });
+              issueBody = issue.data.title + "\n\n" + issue.data.body;
+            }
+
+            const files = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+
+            const changedFiles = files.data.map(file => `- ${file.filename}`).join('\n');
+
+            return {
+              prTitle: pr.data.title,
+              prBody: pr.data.body,
+              issueBody,
+              changedFiles
+            };
+
+      - name: Run AI review
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          echo "Instalando dependencias..."
+          pip install openai
+
+          echo "Generando prompt..."
+          python3 <<EOF
+          import openai
+          import os
+          import json
+
+          openai.api_key = os.getenv("OPENAI_API_KEY")
+
+          metadata = json.loads('''${{ steps.metadata.outputs.result }}''')
+
+          prompt = f"""
+          Eres un revisor de código que evalúa Pull Requests en una aplicación de nómina hecha en React.
+
+          A continuación tienes el título y descripción del PR:
+          {metadata['prTitle']}
+          {metadata['prBody']}
+
+          Y el issue que lo origina (descripción, pasos, checklist):
+          {metadata['issueBody']}
+
+          Los siguientes archivos fueron modificados:
+          {metadata['changedFiles']}
+
+          Realiza una revisión como si fueras un desarrollador senior:
+          - Evalúa si los cambios cumplen con el objetivo del issue.
+          - Revisa si hay buenas prácticas en React (JSX, hooks, nombres, etc).
+          - Revisa si los copies están bien redactados (ortografía, tono claro).
+          - Haz sugerencias de mejora o confirma si todo está correcto.
+          """
+
+          print("Enviando a OpenAI...")
+
+          response = openai.ChatCompletion.create(
+            model="gpt-4",  # o gpt-4o si tienes acceso
+            messages=[
+              {"role": "system", "content": "Eres un experto revisor de código para frontend React."},
+              {"role": "user", "content": prompt}
+            ]
+          )
+
+          print("Respuesta de la IA:")
+          print(response.choices[0].message.content)
+          EOF
