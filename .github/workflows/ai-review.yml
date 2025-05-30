@@ -45,7 +45,25 @@ jobs:
               pull_number: context.issue.number,
             });
 
-            const changedFiles = files.data.map(file => `- ${file.filename}`).join('\n');
+            // Get file contents for each changed file
+            const fileContents = await Promise.all(
+              files.data.map(async (file) => {
+                const content = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: file.filename,
+                  ref: pr.data.head.sha,
+                });
+                return {
+                  filename: file.filename,
+                  content: Buffer.from(content.data.content, 'base64').toString()
+                };
+              })
+            );
+
+            const changedFiles = fileContents.map(file =>
+              `### ${file.filename}\n\`\`\`\n${file.content}\n\`\`\``
+            ).join('\n\n');
 
             core.setOutput("prTitle", pr.data.title);
             core.setOutput("prBody", pr.data.body);
@@ -85,25 +103,35 @@ jobs:
           Y el issue que lo origina (descripción, pasos, checklist):
           {issue_body}
 
-          Los siguientes archivos fueron modificados:
+          Los siguientes archivos fueron modificados con su contenido:
           {changed_files}
 
-          Realiza una revisión como si fueras un desarrollador senior:
-          - Evalúa si los cambios cumplen con el objetivo del issue.
-          - Revisa si hay buenas prácticas en React (JSX, hooks, nombres, etc).
-          - Revisa si los copies están correctamente escritos y son consistentes.
-          - Sugiere mejoras de código si las hay.
-          - Verifica que no haya código comentado o console.logs.
-          - Asegúrate que los nombres de variables y funciones sean descriptivos.
+          Realiza una revisión detallada como si fueras un desarrollador senior:
+          1. Evalúa si los cambios cumplen con el objetivo del issue.
+          2. Revisa si hay buenas prácticas en React (JSX, hooks, nombres, etc).
+          3. Revisa exhaustivamente la ortografía en español de todos los textos visibles al usuario:
+             - Mensajes de error
+             - Labels de formularios
+             - Botones
+             - Títulos
+             - Cualquier otro texto visible
+          4. Sugiere mejoras de código si las hay.
+          5. Verifica que no haya código comentado o console.logs.
+          6. Asegúrate que los nombres de variables y funciones sean descriptivos.
+          7. Revisa la consistencia en el estilo de los textos (mayúsculas/minúsculas, acentos).
 
-          Proporciona tu revisión en formato markdown con secciones claras.
+          Proporciona tu revisión en formato markdown con secciones claras, incluyendo:
+          - Un resumen general
+          - Lista detallada de errores ortográficos encontrados
+          - Problemas de código identificados
+          - Sugerencias de mejora
           """
 
           try:
               response = client.chat.completions.create(
                   model="gpt-3.5-turbo",
                   messages=[
-                      {"role": "system", "content": "Eres un revisor de código senior especializado en React."},
+                      {"role": "system", "content": "Eres un revisor de código senior especializado en React y con excelente dominio del español."},
                       {"role": "user", "content": prompt}
                   ],
                   temperature=0.7,
@@ -112,7 +140,6 @@ jobs:
 
               review = response.choices[0].message.content
 
-              # Guardar la revisión en un archivo para que GitHub Actions pueda acceder a ella
               with open("review.md", "w", encoding="utf-8") as f:
                   f.write(review)
 
