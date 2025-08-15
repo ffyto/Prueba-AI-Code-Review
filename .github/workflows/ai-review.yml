@@ -117,12 +117,15 @@ jobs:
              - Cualquier otro texto visible
           4. Sugiere mejoras de código si las hay.
           5. Verifica que no haya código comentado o console.logs.
-          6. Asegúrate que los nombres de variables y funciones sean descriptivos.
+          6. Asegúrate que los nombres de variables y funciones sean descriptivos y en inglés.
           7. Revisa la consistencia en el estilo de los textos (mayúsculas/minúsculas, acentos).
+          8. Revisa que no se suban errores que un linter señalaría, como funciones sin usar, variables sin usar, etc.
+          9. Verifica que los nombres de los archivos y carpetas sean descriptivos y en inglés.
 
           Proporciona tu revisión en formato markdown con secciones claras, incluyendo:
           - Un resumen general
           - Lista detallada de errores ortográficos encontrados
+          - Lista detallada de errores de código identificados
           - Problemas de código identificados
           - Sugerencias de mejora
           """

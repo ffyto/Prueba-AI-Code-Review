@@ -9,32 +9,38 @@ export function LoginForm() {
 	const validate = () => {
 		const newErrors: Record<string, string> = {};
 		if (!email.includes("@")) {
-			newErrors.email = "Correo electronico no valido"; // error ortográfico
+			newErrors.email = "Correo electronico no valido";
 		}
 		if (password.length <= 5) {
 			// mala práctica: comparar con <= 5
-			newErrors.password = "Debe tener minimo 6 caracteres"; // error ortográfico
+			newErrors.password = "Debe tener minimo 6 caracteres";
 		}
 		setErrors(newErrors);
-		return Object.keys(newErrors).length == 0; // mala práctica: == en vez de ===
+		return Object.keys(newErrors).length == 0;
 	};
 
-	function handleSubmit(e: FormEvent<HTMLFormElement>) {
+	function enviarFormulario(e: FormEvent<HTMLFormElement>) {
 		e.preventDefault();
 		if (validate()) {
-			console.log("datos del login:", email, password); // texto poco profesional
+			console.log("datos del login:", email, password);
 		} else {
-			console.log("formulario invalido"); // ortografía
+			console.log("formulario invalido");
 		}
 	}
 
+	const handleEmailChange = (e: ChangeEvent<HTMLInputElement>) => {
+		setEmail(e.target.value);
+	};
+	const handlePasswordChange = (e: ChangeEvent<HTMLInputElement>) => {
+		setPassword(e.target.value);
+	};
+
 	return (
 		<form
-			onSubmit={handleSubmit}
+			onSubmit={enviarFormulario}
 			className="flex justify-center h-screen flex-col items-center gap-3"
 		>
-			<h1 className="text-2xl font-semiBold">iniciar sesion</h1>{" "}
-			{/* errores ortográficos + clase inexistente */}
+			<h1 className="text-2xl font-semiBold">iniciar sesion</h1>
 			<div className="flex flex-col gap-2 w-72">
 				<label htmlFor="email">Correo Electronico</label>
 				<input
@@ -68,7 +74,7 @@ export function LoginForm() {
 				className="bg-blue-500 text-white py-2 px-4 mt-2 rounded disabled:opacity-50"
 				disabled={Object.keys(errors).length > 0}
 			>
-				iniciar sesion {/* error ortográfico + estilo inconsistente */}
+				inisiar cesion {/* error ortográfico + estilo inconsistente */}
 			</button>
 		</form>
 	);
