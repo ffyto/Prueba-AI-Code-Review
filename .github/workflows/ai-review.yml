@@ -69,6 +69,8 @@ jobs:
             core.setOutput("prBody", pr.data.body);
             core.setOutput("issueBody", issueBody);
             core.setOutput("changedFiles", changedFiles);
+            core.setOutput("repoUrl", `https://github.com/${context.repo.owner}/${context.repo.repo}`);
+            core.setOutput("commitSha", pr.data.head.sha);
 
       - name: Run AI review
         env:
@@ -77,6 +79,8 @@ jobs:
           PR_BODY: ${{ steps.metadata.outputs.prBody }}
           ISSUE_BODY: ${{ steps.metadata.outputs.issueBody }}
           CHANGED_FILES: ${{ steps.metadata.outputs.changedFiles }}
+          REPO_URL: ${{ steps.metadata.outputs.repoUrl }}
+          COMMIT_SHA: ${{ steps.metadata.outputs.commitSha }}
         run: |
           echo "Instalando dependencias..."
           pip install openai
@@ -122,29 +126,47 @@ jobs:
           8. Revisa que no se suban errores que un linter señalaría, como funciones sin usar, variables sin usar, etc.
           9. Verifica que los nombres de los archivos y carpetas sean descriptivos y en inglés.
 
-          Proporciona tu revisión en formato markdown con secciones claras, incluyendo:
-          - Un resumen general
-          - Lista detallada de errores ortográficos encontrados
-          - Lista detallada de errores de código identificados
-          - Problemas de código identificados
-          - Sugerencias de mejora
+          IMPORTANTE: Para cada problema que encuentres, especifica:
+          - El archivo exacto (filename)
+          - El número de línea o rango de líneas donde está el problema
+          - Un título claro del problema
+          - Una descripción detallada del problema
+          - La sugerencia de corrección específica
+
+          Responde SOLO en formato JSON con la siguiente estructura:
+          {{
+            "summary": "Resumen general de la revisión",
+            "issues": [
+              {{
+                "title": "Título claro del problema (ej: 'Error ortográfico en label del formulario')",
+                "description": "Descripción detallada del problema y por qué es importante corregirlo",
+                "path": "ruta/del/archivo.tsx",
+                "startLine": numero_de_linea_inicio,
+                "endLine": numero_de_linea_fin,
+                "suggestion": "Sugerencia específica de cómo corregirlo",
+                "severity": "error|warning|suggestion"
+              }}
+            ],
+            "general_feedback": "Comentarios generales sobre el PR"
+          }}
           """
 
           try:
               response = client.chat.completions.create(
                   model="gpt-3.5-turbo",
                   messages=[
-                      {"role": "system", "content": "Eres un revisor de código senior especializado en React y con excelente dominio del español."},
+                      {"role": "system", "content": "Eres un revisor de código senior especializado en React y con excelente dominio del español. Responde SIEMPRE en formato JSON válido."},
                       {"role": "user", "content": prompt}
                   ],
                   temperature=0.7,
                   max_tokens=2000
               )
 
-              review = response.choices[0].message.content
+              review_content = response.choices[0].message.content
 
-              with open("review.md", "w", encoding="utf-8") as f:
-                  f.write(review)
+              # Guardar la respuesta JSON para procesamiento
+              with open("review.json", "w", encoding="utf-8") as f:
+                  f.write(review_content)
 
           except Exception as e:
               print(f"Error al generar la revisión: {str(e)}")
@@ -156,11 +178,84 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const review = fs.readFileSync('review.md', 'utf8');
 
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: review
-            });
+            try {
+              const reviewData = JSON.parse(fs.readFileSync('review.json', 'utf8'));
+
+              let commentBody = '## 🤖 Revisión Automática de Código\n\n';
+
+              // Agregar resumen si existe
+              if (reviewData.summary) {
+                commentBody += `### Resumen\n${reviewData.summary}\n\n`;
+              }
+
+              // Procesar cada issue encontrado
+              if (reviewData.issues && reviewData.issues.length > 0) {
+                for (const issue of reviewData.issues) {
+                  const severityEmoji = {
+                    'error': '🚨',
+                    'warning': '⚠️',
+                    'suggestion': '💡'
+                  }[issue.severity] || '📝';
+
+                  commentBody += `<details open>\n`;
+                  commentBody += `<summary><h3>${severityEmoji} ${issue.title}</h3></summary>\n\n`;
+                  commentBody += `${issue.description}\n\n`;
+
+                  if (issue.suggestion) {
+                    commentBody += `**💡 Sugerencia:** ${issue.suggestion}\n\n`;
+                  }
+
+                  commentBody += `<p></p>\n\n`;
+
+                  // Crear enlace al código
+                  const repoUrl = process.env.REPO_URL || context.payload.repository.html_url;
+                  const commitSha = process.env.COMMIT_SHA || context.payload.pull_request.head.sha;
+
+                  let linkRange = '';
+                  if (issue.startLine === issue.endLine) {
+                    linkRange = `#L${issue.startLine}`;
+                  } else {
+                    linkRange = `#L${issue.startLine}-L${issue.endLine}`;
+                  }
+
+                  const codeUrl = `${repoUrl}/blob/${commitSha}/${issue.path}${linkRange}`;
+
+                  commentBody += `<details>\n`;
+                  commentBody += `<summary><code>${issue.path}${linkRange}</code></summary>\n\n`;
+                  commentBody += `${codeUrl}\n\n`;
+                  commentBody += `</details>\n\n`;
+                  commentBody += `</details>\n\n`;
+                }
+              } else {
+                commentBody += '✅ No se encontraron problemas en este PR.\n\n';
+              }
+
+              // Agregar feedback general si existe
+              if (reviewData.general_feedback) {
+                commentBody += `### Comentarios Generales\n${reviewData.general_feedback}\n\n`;
+              }
+
+              commentBody += '---\n*Revisión automática generada por IA*';
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: commentBody
+              });
+
+              console.log(`Revisión completada: ${reviewData.issues?.length || 0} problemas encontrados`);
+
+            } catch (error) {
+              console.log(`Error procesando la revisión: ${error.message}`);
+
+              // Fallback: crear comentario con el contenido raw
+              const rawContent = fs.readFileSync('review.json', 'utf8');
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `## 🤖 Revisión Automática de Código\n\n⚠️ Hubo un error procesando la revisión. Contenido raw:\n\n\`\`\`json\n${rawContent}\n\`\`\``
+              });
+            }
